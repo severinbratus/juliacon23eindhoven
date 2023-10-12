@@ -1,0 +1,427 @@
+---
+title: Laplace Redux Redux
+# subtitle: JuliaCon Local Eindhoven 2023
+author: Severin Bratus
+format: 
+  revealjs:
+    logo: www/logo_joint.png
+    theme: [default, my.scss]
+    # css: my.css
+    # footer: |
+    #     Severin Bratus
+    embed-resources: true
+    # smaller: true
+    # scrollable: true
+    preview-links: auto
+    slide-number: true
+    transition: slide
+    background-transition: fade
+    fig-align: center
+bibliography: bib.bib
+execute:
+  eval: false
+  echo: true
+---
+
+# Theoretic Introduction
+
+::: {.notes}
+Hello all,
+my name is Severin Bratus,
+I am an undergraduate CS student at TU Delft.
+Today I would like to present a talk on the enhancements our student team has made to the LaplaceRedux.jl package last academic year.
+:::
+
+## Importance of uncertainty calibration
+
+::: {layout="[[1,1], [1,1]]" .text-centered}
+![Medical diagnosis](www/image_medical_diagnosis.png){width=160}
+
+![Autonomous driving](www/image_autonomous_driving.png){width=160}
+
+![Predictive justice](www/image_predictive_justice.png){width=160}
+
+![Finance](www/image_market_automaton.png){width=160}
+:::
+
+::: {.notes}
+Now, at its core, LaplaceRedux is a Julia package for uncertainty calibration for neural networks.
+Uncertainty estimation is important, since deep neural network are used in:
+1. Medical diagnosis
+2. Autonomous vehicles
+3. Predictive criminal justice
+4. Finance
+
+In all of these applications, it is crucial to place an uncertainty estimate next to the prediction we receive from the model.
+:::
+
+## What is *well-calibrated*?
+
+![](www/figure_calibration_compass.png)
+
+::: footer
+source: drawn by author
+:::
+
+::: {.notes}
+In other words, we want the model to tell us how confident it is in the inference it's making.
+And we call a model well-calibrated if the confidence of a prediction matches its true error rate. 
+
+TODO:
+1. spend more time on julia?
+3. measure how much time this takes:
+- the theory pitch
+- demo-like
+- end & qa
+8. write the abstract/proposal
+
+You have 23 minutes in total.
+
+10 - ceiling on theory
+10 - talk about julia
+3 talk about smth else?
+
+:::
+
+## The Bayesian approach
+
+|   |   |
+|---|---|
+posterior | $p(\theta \mid \mathcal{D}) = \tfrac{1}{Z} \,p(\mathcal{D} \mid \theta) \, p(\theta)$
+likelihood | $p(\mathcal{D} \mid \theta)$
+prior | $p(\theta)$
+evidence | $Z := p(\mathcal{D}) = \textstyle\int p(\mathcal{D} \mid \theta) \, p(\theta) \,d\theta$
+
+
+::: {.notes}
+The Bayesian approach provides a principled theoretic framework for such calibration.
+
+Bayesian approach is that of modeling the posterior by applying the Bayes’ Theorem.
+
+In this formula, the weight posterior, denoted, is the conditional probability of the weight parameters theta given the full dataset D.
+
+The likelihood is the likelihood of the data conditioned on parameters theta.
+In other words, this is how likely the whole dataset is, according to our model theta.
+
+The prior p(theta) is what we presuppose the weight distribution should look like, *prior* to observing the dataset.
+
+Finally, the constant Z is called the model evidence.
+This is the evidence of how good the model is as a whole, independent of specific parameter settings.
+It is the likelihood of the dataset D over all possible weight configurations.
+Needless to say, the model evidence is intractable to compute precisely, so we must approximate it.
+:::
+
+## loss = -- log(likelihood)
+
+. . .
+
+min loss = max likelihood = max posterior (if prior uniform)
+
+. . .
+
+- MLE = maximum likelihood estimate
+- MAP = *maximum a posteriori*
+
+::: {.notes}
+Now, usually deep learning models have probablistic interpretation,
+where the loss is tied to the negative log-likelihood.
+
+Thus if parameters minimize loss, they maximize dataset likelihood.
+
+With a uniform prior, the posterior curvature is the same as the likelihood curvature.
+And this implies the parameters also maximize the posterior.
+
+This is called the maximum-likelihood estimate (MLE), or maximum a posteriori (MAP).
+
+Thus, at least in theory, deep learning models trained via gradient find an approximation to the mode (or at least a local maximum) of the posterior distribution.
+
+The issue here is that we get only a point estimate of the optimal parameters,
+instead of a distribution.
+:::
+
+## A physical metaphor
+
+![](www/figure_loss_terrain_extended.jpg)
+
+::: footer
+source: altered from @amini2019spatial
+:::
+
+## The Laplace approximation
+
+|   |   |
+|--:|---|
+posterior | $p(\theta \mid \mathcal{D}) \approx \mathcal{N}(\theta; \mu, \varSigma)$
+centered at | $\mu := \theta_\text{MAP}$
+with covariance | $\varSigma := H^{-1}$
+where | $H = \nabla^2_\theta \mathcal{L}(\mathcal{D};\theta) \vert_{\theta_\text{MAP}}$
+
+::: {.notes}
+This is where the Laplace approximation comes in, as a low-overhead method to provide posterior estimation.
+
+The main idea is to approximate the posterior distribution as a Gaussian around the MAP (the local maximum).
+
+The covariance matrix is set as the inverse of the Hessian of the loss at the MAP.
+
+The Hessian is a matrix of secord-order partial derivatives.
+:::
+
+## The posterior predictive
+
+> Probability of $y$ given that the model predicted $f(x_*)$ on input $x_*$.
+
+$$
+p(y \mid f(x_*), \mathcal{D}) = \int p(y \mid f_\theta(x_*)) \, p(\theta \mid \mathcal{D}) \,d\theta
+$$
+
+::: {.notes}
+This allows to approximate what we are actually interested in:
+what is the probability of the target variable y given the output of the model f(x) on input x.
+
+Given a prediction f(x) for an input x,
+we marginalize over posterior parameter distribution
+(thus bringing theta out of the predictive)
+
+:::
+
+## The Hessian
+
+:::: {.columns}
+
+::: {.column width="40%"}
+$$
+(H_{f})_{i,j}={\frac {\partial ^{2}f}{\partial x_{i}\,\partial x_{j}}}
+$$
+:::
+
+::: {.column width="60%"}
+$$
+H_{f} = 
+\begin{bmatrix}
+{\dfrac {\partial ^{2}f}{\partial x_{1}^{2}}}&\cdots &{\dfrac {\partial ^{2}f}{\partial x_{1}\,\partial x_{n}}}\\[2.2ex]
+\vdots &\ddots &\vdots \\[2.2ex]
+{\dfrac {\partial ^{2}f}{\partial x_{n}\,\partial x_{1}}}&\cdots &{\dfrac {\partial ^{2}f}{\partial x_{n}^{2}}}
+\end{bmatrix}
+$$
+:::
+
+::::
+
+::: {.notes}
+The Hessian is a symmetric matrix containing all combinations of second order partial derivatives
+of the loss function at the MAP
+wrt model parameters.
+
+As you can imagine, this is in practice infeasible to compute,
+since the size of a deep neural network might realistically be in the order of millions.
+
+(and the size of the Hessian is quadratic wrt that)
+:::
+
+## The Fisher information matrix
+$$
+F := \textstyle\sum_{n=1}^N \mathbb{E}_{\widehat{y} \sim p(y \mid f_\theta(x_n))} \left[  gg^\intercal \right] \\
+g = \nabla_\theta \log p(\widehat{y} \mid f_\theta(x_n)) \large\vert_{\theta_\text{MAP}}
+$$
+
+## The generalized Gauss-Newton
+$$
+G := \textstyle\sum_{n=1}^N J(x_n) \left( \nabla^2_{f} \log p(y_n \mid f) \Large\vert_{f=f_{\theta_\text{map}}(x_n)} \right) J(x_n)^\intercal \\
+J(x_n) := \nabla_\theta f_\theta(x_n) \vert_{\theta_\text{map}}
+$$
+
+## Weight subsets
+
+![](www/figure_weight_subsets_extended.png)
+
+::: {.notes}
+We can reduce the complexity of the computation by using
+only a subset of the network parameters to compute the Hessian.
+
+This is called subnetwork Laplace.
+One special case of subnetwork Laplace that was found to perform well in practice is the last-layer Laplace,
+in which only the parameters of the last-layer are included.
+:::
+
+::: footer
+source: altered from @daxberger2022laplace
+:::
+
+## Approximate Hessian structures
+
+![](www/figure_hessian_structures.png)
+
+::: {.notes}
+One cheap simplification we can make is to approximate the Hessian as a diagonal matrix
+which means that the covariance matrix sigma will be actually have variance values on the diagonal, and nothing more.
+
+Another is to disregard the cross-layer covariances, and approximate the Hessian as a block-diagonal.
+:::
+
+::: footer
+source: @daxberger2022laplace
+:::
+
+##
+
+![](www/figure_hessian_blocks.png)
+
+::: footer
+source: @martens2020optimizing
+:::
+
+# LaplaceRedux.jl
+
+## TODO describe task & network for demo
+
+::: {.notes}
+:::
+
+## True Hessian {transition="none"}
+
+```julia
+theta, rebuild = Flux.destructure(nn)
+
+function loss_vec(theta::Vector)
+    nn_rebuilt = rebuild(nn)
+    Flux.Losses.logitcrossentropy(nn_rebuilt(X), Y)
+end;
+
+H = Zygote.hessian(loss_vec, theta)
+```
+
+## True Hessian {transition="none"}
+
+![](www/heatmap_true_hessian.png){.hm}
+
+::: {.notes}
+:::
+
+## Generalized Gauss-Newton (GNN) {transition="none"}
+
+![](www/heatmap_ggn.png){.hm}
+
+<!-- ```julia -->
+<!-- dl = DataLoader((X, Y), batchsize=32); -->
+<!-- la = Laplace(nn; likelihood=:classification, backend=:GGN) -->
+<!-- fit!(la, dl) -->
+<!-- GGN = la.H -->
+<!-- ``` -->
+
+::: {.notes}
+:::
+
+## GGN error {transition="none"}
+
+![](www/heatmap_ggn_error.png){.hm}
+
+<!-- ```julia -->
+<!-- H - GGN / size(X, 2) -->
+<!-- ``` -->
+
+## Last layer only {transition="none"}
+
+![](www/heatmap_ggn_ll.png){.hm}
+
+<!-- ```julia -->
+<!-- la = Laplace(nn; likelihood=:classification, backend=:GGN, subset_of_weights=:last_layer) -->
+<!-- fit!(la, dl) -->
+<!-- ``` -->
+
+## Block-diagonal Laplace {transition="none"}
+
+![](www/heatmap_kfac.png){.hm}
+
+<!-- ```julia -->
+<!-- la = Laplace(nn; likelihood=:classification, backend=:EmpiricalFisher, hessian_structure=:kron) -->
+<!-- fit!(la, data) -->
+<!-- ``` -->
+
+## Last layer only {transition="none"}
+
+![](www/heatmap_kfac_ll.png){.hm}
+
+<!-- ```julia -->
+<!-- la = Laplace(nn; likelihood=:classification, backend=:EmpiricalFisher, hessian_structure=:kron, subset_of_weights=:last_layer) -->
+<!-- fit!(la, data) -->
+<!-- ``` -->
+
+## Our contributions
+
+::: {.incremental}
+- Laplace on multi-class classification
+- Generalized Gauss-Newton
+- Batched computations
+- Block-diagonal methods
+- MLJ.jl interface
+:::
+
+::: {.notes}
+:::
+
+# The good, the bad, and the ugly
+
+## What we found nice
+
+::: {.incremental}
+- Metaprogramming
+- Julia standard API
+- Flux/Zygote
+:::
+
+## Pain points
+
+::: {.incremental}
+- Compile & load times
+- Obscure stack traces
+- Limited LSP & Unicode support for Jupyter Lab
+- Zygote not self-differentiable
+- No second-order information from Zygote
+- No branch coverage
+- No ONNX
+:::
+
+# Acknowledgements
+
+::: {.incremental}
+- Team:
+  - Mark Ardman
+  - Severin Bratus
+  - Adelina Cazacu
+  - Andrei Ionescu
+  - Ivan Makarov
+- Patrick Altmeyer
+- CSE2000 *Software Project* course @ TU Delft
+:::
+
+::: {.notes}
+The contributions to LaplaceRedux.jl were done as part of a second-year Software Project course at TU Delft.
+This is a course where students complete a software project for an external client, in teams of five people, within a two-month window.
+
+You can be that external client, if you make a project proposal,
+and I do encourage companies and package maintainers to apply,
+
+since you will have some reasonably intelligent undergraduate students working for you (FOR FREE)
+and the students will hopefully get an interesting project to work on.
+:::
+
+# References
+
+::: {#refs}
+:::
+
+\* stock images generated by Stable Diffusion
+
+
+::: {.text-centered}
+# Q&A {background-color="white" background-image="www/bg_glider.gif" background-size="100px" background-repeat="repeat"}
+[s bratus [at] student tudelft nl]{style="font-family: monospace;"}
+:::
+
+::: {.notes}
+I am ready to accept your questions.
+...
+
+It's been a pleasure.
+Enjoy the rest of this conference.
+:::

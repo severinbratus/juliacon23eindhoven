@@ -1,0 +1,37 @@
+/*-- scss:defaults --*/
+
+/*-- scss:rules --*/
+.slide-logo {
+  height: 80px !important;
+  // width: 100px !important;
+  // transform: scale(1) !important;
+  // max-width: unset !important;
+  max-height: unset !important;
+  padding: 5px 15px !important;
+}
+
+.text-centered {
+  text-align: center;
+}
+
+.no-bullets ul {
+  list-style-type: none;
+}
+
+table, th, td {
+  border: none;
+  border-bottom: none !important;
+  border-top: none !important;
+}
+
+.hm {
+  width: 512px !important;
+  height: auto !important;
+}
+
+
+/*-- scss:mixins --*/
+
+/*-- scss:functions --*/
+
+/*-- scss:uses --*/
